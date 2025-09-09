@@ -15,7 +15,7 @@ const defaultPersona = {
 const DEFAULT_FORM = {
   product_name: "iPhone 14 128GB",
   value_prop: "Garantía oficial y envío en 24hs",
-  website: "https://libertyclub.io/",
+  website: "nexentrixagency.com",
   landing_path: "/iphone-14",
   location_countries: ["AR"],
   location_cities: ["Buenos Aires"],
@@ -25,35 +25,32 @@ const DEFAULT_FORM = {
   platform: ["google", "meta"],
   personas: [defaultPersona],
   promo: "12x sin interés y envío gratis",
-  // Nuevo: imagen
-  image_url: "",        // opción 1: pegar URL
-  image_base64: "",     // opción 2: subir archivo (se llena automáticamente)
+
+  // Imagen global y por canal (el usuario puede setear cualquiera)
+  image_url: "",
+  google_image_url: "",
+  meta_image_url: "",
+  // Si sube archivo, guardamos también base64
+  image_base64: "",
 };
 
 function dedupe(a = []) {
   return Array.from(new Set((a || []).filter(Boolean)));
 }
-
 function normalizeUrl(u = "") {
   try {
-    // acepta ya absolutas
     const url = new URL(u);
     return url.href;
   } catch {
-    // intenta agregar https
     if (!u) return "";
     return `https://${u.replace(/^https?:\/\//, "")}`;
   }
 }
-
 function cleanPayload(form) {
-  // limpia y normaliza lo que enviamos
   const website = normalizeUrl(form.website);
   const location_countries = dedupe(form.location_countries);
   const location_cities = dedupe(form.location_cities);
   const platform = dedupe(form.platform);
-
-  // limpia personas (sin tags vacíos)
   const personas = (form.personas || []).map((p) => ({
     ...p,
     interests: dedupe(p.interests),
@@ -69,14 +66,11 @@ function cleanPayload(form) {
     personas,
   };
 
-  // Si hay base64, priorizarlo sobre image_url
-  if (form.image_base64) {
-    out.image_base64 = form.image_base64;
-  } else {
-    delete out.image_base64;
-  }
-
-  if (!form.image_url) delete out.image_url;
+  // limpia campos vacíos
+  if (!out.image_url) delete out.image_url;
+  if (!out.google_image_url) delete out.google_image_url;
+  if (!out.meta_image_url) delete out.meta_image_url;
+  if (!out.image_base64) delete out.image_base64;
 
   return out;
 }
@@ -87,7 +81,6 @@ export default function AdsStudio() {
   const [resp, setResp] = useState(null);
   const [error, setError] = useState(null);
 
-  // Evita dobles barras y facilita override por Vite
   const rawBase = import.meta.env.VITE_API_BASE || "https://crm-ia-eight.vercel.app";
   const apiBase = rawBase.replace(/\/+$/, "");
 
@@ -95,9 +88,7 @@ export default function AdsStudio() {
     setLoading(true);
     setError(null);
     setResp(null);
-
     try {
-      // Validaciones rápidas
       if (!form.product_name?.trim()) throw new Error("Falta el nombre de producto.");
       if (!form.platform?.length) throw new Error("Seleccioná al menos una plataforma.");
       if (!form.personas?.length) throw new Error("Agregá al menos un segmento/persona.");
@@ -106,12 +97,10 @@ export default function AdsStudio() {
       }
 
       const payload = cleanPayload(form);
-
       const r = await fetch(`${apiBase}/ads/segment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        // si tu endpoint no usa cookies/sesión, no agregues credentials
       });
 
       let data;
@@ -121,12 +110,10 @@ export default function AdsStudio() {
       } catch {
         data = { detail: text || "Respuesta no-JSON del servidor" };
       }
-
       if (!r.ok) {
         const detail = data?.detail || r.statusText || "Error en el endpoint";
         throw new Error(`${r.status} ${detail}`);
       }
-
       setResp(data);
     } catch (e) {
       setError(e.message || "Error desconocido");
@@ -136,13 +123,11 @@ export default function AdsStudio() {
   };
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
   const addPersona = () =>
     update("personas", [
       ...form.personas,
       { ...defaultPersona, name: `Segmento ${form.personas.length + 1}` },
     ]);
-
   const rmPersona = (i) =>
     update(
       "personas",
@@ -162,15 +147,26 @@ export default function AdsStudio() {
     URL.revokeObjectURL(url);
   };
 
+  // helpers imagen según canal
+  const pickGoogleImg = (card) =>
+    card?.image_url ||
+    form.google_image_url ||
+    form.image_url ||
+    form.image_base64 ||
+    "";
+  const pickMetaImg = (card) =>
+    card?.image_url || form.meta_image_url || form.image_url || form.image_base64 || "";
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Nexentrix · Segmentación y Previews</h1>
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <h1 className="text-2xl font-bold min-w-0">Nexentrix · Segmentación y Previews</h1>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setForm(DEFAULT_FORM)}
-              className="px-3 py-1 rounded-lg text-sm border"
+              className="px-3 py-1 rounded-lg text-sm border hover:bg-gray-50"
             >
               Restablecer defaults
             </button>
@@ -184,60 +180,38 @@ export default function AdsStudio() {
           </div>
         </header>
 
-        {/* Formulario */}
+        {/* Layout principal */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-2xl shadow p-5 space-y-5">
+          {/* Columna izquierda: Form */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow p-5 space-y-6 min-w-0">
+            {/* Datos base */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Text
-                label="Producto"
-                value={form.product_name}
-                onChange={(v) => update("product_name", v)}
-              />
-              <Text
-                label="Propuesta de valor"
-                value={form.value_prop}
-                onChange={(v) => update("value_prop", v)}
-              />
+              <Text label="Producto" value={form.product_name} onChange={(v) => update("product_name", v)} />
+              <Text label="Propuesta de valor" value={form.value_prop} onChange={(v) => update("value_prop", v)} />
               <Text
                 label="Sitio"
                 value={form.website}
                 onChange={(v) => update("website", v)}
                 onBlur={() => update("website", normalizeUrl(form.website))}
               />
-              <Text
-                label="Landing"
-                value={form.landing_path}
-                onChange={(v) => update("landing_path", v)}
-              />
+              <Text label="Landing" value={form.landing_path} onChange={(v) => update("landing_path", v)} />
               <Text
                 label="Países (coma)"
-                value={(Array.isArray(form.location_countries)
-                  ? form.location_countries
-                  : []
-                ).join(", ")}
+                value={(Array.isArray(form.location_countries) ? form.location_countries : []).join(", ")}
                 onChange={(v) =>
                   update(
                     "location_countries",
-                    v
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
+                    v.split(",").map((s) => s.trim()).filter(Boolean)
                   )
                 }
               />
               <Text
                 label="Ciudades (coma)"
-                value={(Array.isArray(form.location_cities)
-                  ? form.location_cities
-                  : []
-                ).join(", ")}
+                value={(Array.isArray(form.location_cities) ? form.location_cities : []).join(", ")}
                 onChange={(v) =>
                   update(
                     "location_cities",
-                    v
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean)
+                    v.split(",").map((s) => s.trim()).filter(Boolean)
                   )
                 }
               />
@@ -250,9 +224,7 @@ export default function AdsStudio() {
               <NumberInput
                 label="Presupuesto diario (USD)"
                 value={form.budget_daily}
-                onChange={(v) =>
-                  update("budget_daily", v === "" ? "" : globalThis.Number(v) || 0)
-                }
+                onChange={(v) => update("budget_daily", v === "" ? "" : globalThis.Number(v) || 0)}
               />
               <Multi
                 label="Plataformas"
@@ -260,52 +232,56 @@ export default function AdsStudio() {
                 onChange={(arr) => update("platform", dedupe(arr))}
                 options={["google", "meta"]}
               />
-              <Text
-                label="Promo"
-                value={form.promo || ""}
-                onChange={(v) => update("promo", v)}
-              />
+              <Text label="Promo" value={form.promo || ""} onChange={(v) => update("promo", v)} />
             </div>
 
-            {/* Imagen (URL o Archivo) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <ImagePicker
-                label="Imagen del anuncio (subir archivo)"
-                value={form.image_url}
-                onUrlChange={(u) => update("image_url", u)}
-                onBase64={(b64, previewUrl) => {
-                  update("image_base64", b64);
-                  update("image_url", previewUrl || "");
-                }}
-                onClear={() => {
-                  update("image_url", "");
-                  update("image_base64", "");
-                }}
-              />
-              <Text
-                label="Imagen del anuncio (URL)"
-                value={form.image_url}
-                onChange={(v) => {
-                  update("image_url", v);
-                  // si el user pega una URL manual, descartamos el base64 previo
-                  if (form.image_base64) update("image_base64", "");
-                }}
-              />
-            </div>
+            {/* Imagen: Global + por canal */}
+            <section className="space-y-3">
+              <h3 className="font-semibold">Imágenes del anuncio</h3>
+              <p className="text-xs text-gray-500">
+                Podés subir un archivo o indicar una URL. Si completás las URL específicas por canal, se usarán en su
+                preview; si no, se usará la imagen global.
+              </p>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ImagePicker
+                  label="Subir archivo (global)"
+                  previewSrc={form.image_base64 || form.image_url}
+                  onBase64={(b64) => update("image_base64", b64)}
+                  onClear={() => update("image_base64", "")}
+                />
+                <Text
+                  label="Imagen global (URL)"
+                  value={form.image_url}
+                  onChange={(v) => update("image_url", v)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Text
+                  label="Imagen Google (URL)"
+                  value={form.google_image_url}
+                  onChange={(v) => update("google_image_url", v)}
+                />
+                <Text
+                  label="Imagen Meta (URL)"
+                  value={form.meta_image_url}
+                  onChange={(v) => update("meta_image_url", v)}
+                />
+              </div>
+            </section>
+
+            {/* Personas */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <h3 className="font-semibold">Personas / Segmentos</h3>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={addPersona}
-                    className="text-sm px-3 py-1 bg-gray-900 text-white rounded-lg"
-                  >
+                  <button onClick={addPersona} className="text-sm px-3 py-1 bg-gray-900 text-white rounded-lg">
                     + Agregar
                   </button>
                   <button
                     onClick={() => update("personas", [defaultPersona])}
-                    className="text-sm px-3 py-1 border rounded-lg"
+                    className="text-sm px-3 py-1 border rounded-lg hover:bg-gray-50"
                   >
                     Reset a 1 segmento
                   </button>
@@ -315,11 +291,8 @@ export default function AdsStudio() {
               {form.personas.map((p, idx) => (
                 <div key={idx} className="border rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="font-medium">{p.name}</h4>
-                    <button
-                      onClick={() => rmPersona(idx)}
-                      className="text-xs text-red-600"
-                    >
+                    <h4 className="font-medium truncate">{p.name}</h4>
+                    <button onClick={() => rmPersona(idx)} className="text-xs text-red-600">
                       Eliminar
                     </button>
                   </div>
@@ -377,8 +350,8 @@ export default function AdsStudio() {
             </div>
           </div>
 
-          {/* Panel derecho */}
-          <div className="bg-white rounded-2xl shadow p-5 space-y-4">
+          {/* Columna derecha: Previews/Plan */}
+          <div className="bg-white rounded-2xl shadow p-5 space-y-4 min-w-0 lg:sticky lg:top-6 h-fit">
             <h3 className="font-semibold">Acciones</h3>
             <button
               onClick={submit}
@@ -387,30 +360,33 @@ export default function AdsStudio() {
             >
               {loading ? "Generando..." : "Generar plan y previews"}
             </button>
-            {error && <p className="text-red-600 text-sm whitespace-pre-wrap">{error}</p>}
+            {error && <p className="text-red-600 text-sm whitespace-pre-wrap break-words">{error}</p>}
 
             {resp && (
               <div className="space-y-5">
                 <h3 className="font-semibold">Previsualizaciones</h3>
-                <PreviewGoogle card={resp.preview?.google_search_card} />
+
+                {/* Google con imagen */}
+                <PreviewGoogle
+                  card={resp.preview?.google_search_card}
+                  img={pickGoogleImg(resp.preview?.google_search_card)}
+                />
+
+                {/* Meta con imagen */}
                 <PreviewMeta
                   card={resp.preview?.meta_feed_card}
-                  fallbackImg={form.image_url}
+                  img={pickMetaImg(resp.preview?.meta_feed_card)}
                 />
 
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold">Plan generado</h3>
-                  <button
-                    onClick={downloadPlan}
-                    className="text-xs px-2 py-1 border rounded-lg"
-                  >
+                  <button onClick={downloadPlan} className="text-xs px-2 py-1 border rounded-lg hover:bg-gray-50">
                     Descargar plan.json
                   </button>
                 </div>
-
                 <textarea
                   readOnly
-                  className="w-full h-64 p-3 bg-gray-50 rounded-lg text-xs"
+                  className="w-full h-64 p-3 bg-gray-50 rounded-lg text-xs border"
                   value={JSON.stringify(resp.plan ?? {}, null, 2)}
                 />
               </div>
@@ -426,10 +402,10 @@ export default function AdsStudio() {
 function Text({ label, value, onChange, onBlur }) {
   const safe = typeof value === "string" ? value : value == null ? "" : String(value);
   return (
-    <label className="text-sm">
+    <label className="text-sm min-w-0">
       <div className="text-gray-600 mb-1">{label}</div>
       <input
-        className="w-full border rounded-lg px-3 py-2"
+        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200"
         value={safe}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
@@ -437,7 +413,6 @@ function Text({ label, value, onChange, onBlur }) {
     </label>
   );
 }
-
 function NumberInput({ label, value, onChange }) {
   const safe =
     typeof value === "number" && globalThis.Number.isFinite(value)
@@ -445,34 +420,31 @@ function NumberInput({ label, value, onChange }) {
       : value == null
       ? ""
       : String(value);
-
   const handle = (e) => {
     const raw = e.target.value;
     if (raw === "") return onChange("");
     const n = globalThis.Number(raw);
     onChange(globalThis.Number.isFinite(n) ? n : raw);
   };
-
   return (
     <label className="text-sm">
       <div className="text-gray-600 mb-1">{label}</div>
       <input
         type="number"
         step="any"
-        className="w-full border rounded-lg px-3 py-2"
+        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200"
         value={safe}
         onChange={handle}
       />
     </label>
   );
 }
-
 function Select({ label, value, onChange, options = [] }) {
   return (
     <label className="text-sm">
       <div className="text-gray-600 mb-1">{label}</div>
       <select
-        className="w-full border rounded-lg px-3 py-2"
+        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -485,7 +457,6 @@ function Select({ label, value, onChange, options = [] }) {
     </label>
   );
 }
-
 function Multi({ label, value = [], onChange, options = [] }) {
   const toggle = (o) => {
     const s = new Set(value);
@@ -501,8 +472,8 @@ function Multi({ label, value = [], onChange, options = [] }) {
             key={o}
             type="button"
             onClick={() => toggle(o)}
-            className={`px-3 py-1 rounded-full border ${
-              value.includes(o) ? "bg-black text-white" : "bg-white"
+            className={`px-3 py-1 rounded-full border transition ${
+              value.includes(o) ? "bg-black text-white" : "bg-white hover:bg-gray-50"
             }`}
           >
             {o}
@@ -512,7 +483,6 @@ function Multi({ label, value = [], onChange, options = [] }) {
     </div>
   );
 }
-
 function Tags({ label, value = [], onChange }) {
   const [input, setInput] = useState("");
   const add = () => {
@@ -537,7 +507,7 @@ function Tags({ label, value = [], onChange }) {
             key={i}
             className="px-2 py-1 rounded-full bg-gray-100 border text-xs flex items-center gap-2"
           >
-            {t}
+            <span className="break-words">{t}</span>
             <button onClick={() => rm(i)} className="text-red-600">
               ×
             </button>
@@ -546,7 +516,7 @@ function Tags({ label, value = [], onChange }) {
       </div>
       <div className="flex gap-2">
         <input
-          className="flex-1 border rounded-lg px-3 py-2"
+          className="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-200"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
@@ -560,17 +530,16 @@ function Tags({ label, value = [], onChange }) {
   );
 }
 
-/* -------- Imagen: subir/URL + preview + base64 -------- */
-function ImagePicker({ label, value, onUrlChange, onBase64, onClear }) {
+/* -------- Imagen uploader simple -------- */
+function ImagePicker({ label, previewSrc, onBase64, onClear }) {
   const [busy, setBusy] = useState(false);
 
   const handleFile = async (file) => {
     if (!file) return;
     setBusy(true);
     try {
-      const previewUrl = URL.createObjectURL(file);
       const b64 = await toBase64(file);
-      onBase64?.(b64, previewUrl);
+      onBase64?.(b64);
     } finally {
       setBusy(false);
     }
@@ -580,31 +549,26 @@ function ImagePicker({ label, value, onUrlChange, onBase64, onClear }) {
     <div className="text-sm">
       <div className="text-gray-600 mb-1">{label}</div>
       <div className="flex items-center gap-2">
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => handleFile(e.target.files?.[0])}
-        />
-        {value ? (
+        <input type="file" accept="image/*" onChange={(e) => handleFile(e.target.files?.[0])} />
+        {previewSrc ? (
           <button type="button" onClick={onClear} className="text-xs text-red-600">
-            Quitar imagen
+            Quitar
           </button>
         ) : null}
       </div>
       {busy && <div className="text-xs text-gray-500 mt-1">Procesando imagen…</div>}
-      {value ? (
+      {previewSrc ? (
         <div className="mt-2">
           <img
-            src={value}
+            src={previewSrc}
             alt="preview anuncio"
-            className="w-full max-h-56 object-contain border rounded-lg"
+            className="w-full max-h-56 object-contain border rounded-lg bg-gray-50"
           />
         </div>
       ) : null}
     </div>
   );
 }
-
 function toBase64(file) {
   return new Promise((res, rej) => {
     const reader = new FileReader();
@@ -615,41 +579,62 @@ function toBase64(file) {
 }
 
 /* --------- Previews --------- */
-function PreviewGoogle({ card }) {
+function PreviewGoogle({ card, img }) {
   if (!card) return null;
   const copy = (txt) => navigator.clipboard?.writeText?.(txt);
+  const url = card.url || "";
+  const path = card.path || "";
+  const title = card.title || "";
+  const description = card.description || "";
+
   return (
     <div className="border rounded-xl p-4">
-      <div className="text-xs text-gray-500">Google · Search (borrador)</div>
-      <div className="mt-2 text-blue-700 text-sm break-words flex items-center gap-2">
-        <a href={card.url} target="_blank" rel="noreferrer" className="underline">
-          {card.url}
-        </a>
-        <button
-          onClick={() => copy(card.url)}
-          className="text-[10px] px-2 py-0.5 border rounded"
-        >
-          Copiar
-        </button>
+      <div className="text-xs text-gray-500">Google · Search (borrador con imagen)</div>
+
+      {/* Contenido + thumbnail */}
+      <div className="mt-2 flex gap-3">
+        {/* Texto */}
+        <div className="min-w-0 flex-1">
+          <div className="text-blue-700 text-sm break-words flex items-center gap-2">
+            <a href={url} target="_blank" rel="noreferrer" className="underline truncate">
+              {url}
+            </a>
+            {url ? (
+              <button
+                onClick={() => copy(url)}
+                className="text-[10px] px-2 py-0.5 border rounded hover:bg-gray-50"
+              >
+                Copiar
+              </button>
+            ) : null}
+          </div>
+          {path ? <div className="text-green-700 text-xs break-words">{path}</div> : null}
+          <div className="mt-1 font-semibold break-words">{title}</div>
+          <div className="text-gray-700 text-sm break-words">{description}</div>
+        </div>
+
+        {/* Imagen */}
+        {img ? (
+          <div className="shrink-0 w-24 h-24 sm:w-28 sm:h-28 border rounded-lg overflow-hidden bg-gray-50">
+            <img src={img} alt="asset" className="w-full h-full object-cover" />
+          </div>
+        ) : null}
       </div>
-      <div className="text-green-700 text-xs">{card.path}</div>
-      <div className="mt-1 font-semibold">{card.title}</div>
-      <div className="text-gray-700 text-sm">{card.description}</div>
     </div>
   );
 }
 
-function PreviewMeta({ card, fallbackImg }) {
+function PreviewMeta({ card, img }) {
   if (!card) return null;
-  const img = card.image_url || fallbackImg || "";
   const copy = (txt) => navigator.clipboard?.writeText?.(txt);
+  const url = card.url || "";
 
   return (
     <div className="border rounded-xl p-4">
       <div className="text-xs text-gray-500">Meta · Feed/Reels (borrador)</div>
 
       {img ? (
-        <div className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
+        <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
           <img src={img} alt="anuncio" className="w-full h-full object-cover" />
         </div>
       ) : (
@@ -658,23 +643,20 @@ function PreviewMeta({ card, fallbackImg }) {
         </div>
       )}
 
-      <div className="mt-2 text-sm text-gray-800">{card.primary_text}</div>
-      <div className="mt-1 font-semibold">{card.headline}</div>
-      <div className="text-gray-600 text-sm">{card.description}</div>
-      <button className="mt-2 px-3 py-1 rounded-lg bg-blue-600 text-white text-sm">
-        {card.cta}
-      </button>
+      <div className="mt-2 text-sm text-gray-800 break-words">{card.primary_text}</div>
+      <div className="mt-1 font-semibold break-words">{card.headline}</div>
+      <div className="text-gray-600 text-sm break-words">{card.description}</div>
+      <button className="mt-2 px-3 py-1 rounded-lg bg-blue-600 text-white text-sm">{card.cta}</button>
 
       <div className="mt-1 text-xs text-blue-700 break-words flex items-center gap-2">
-        <a href={card.url} target="_blank" rel="noreferrer" className="underline">
-          {card.url}
+        <a href={url} target="_blank" rel="noreferrer" className="underline truncate">
+          {url}
         </a>
-        <button
-          onClick={() => copy(card.url)}
-          className="text-[10px] px-2 py-0.5 border rounded"
-        >
-          Copiar
-        </button>
+        {url ? (
+          <button onClick={() => copy(url)} className="text-[10px] px-2 py-0.5 border rounded hover:bg-gray-50">
+            Copiar
+          </button>
+        ) : null}
       </div>
     </div>
   );
